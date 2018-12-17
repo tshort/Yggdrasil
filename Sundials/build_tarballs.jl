@@ -17,6 +17,13 @@ cd $WORKSPACE/srcdir/SuiteSparse*/
 # Patches for windows build system
 patch -p0 < $WORKSPACE/srcdir/patches/SuiteSparse_windows.patch
 
+# WebAssembly/Emscripten needs this 
+#     -- really, should be built as part of the Emscripten shard
+if [[ ${target} == wasm32-* ]]; then
+    emcc -v
+    apk add nodejs
+fi
+
 for proj in SuiteSparse_config AMD COLAMD BTF KLU; do
     cd $WORKSPACE/srcdir/SuiteSparse/$proj
     make -j${nproc} library
@@ -40,7 +47,7 @@ fi
 mkdir build
 cd build
 
-CMAKE_FLAGS="-DCMAKE_INSTALL_PREFIX=${prefix} -DCMAKE_TOOLCHAIN_FILE=/opt/$target/$target.toolchain"
+CMAKE_FLAGS="-DCMAKE_INSTALL_PREFIX=${prefix} -DCMAKE_TOOLCHAIN_FILE=/opt/${host_target}/${target}.toolchain"
 CMAKE_FLAGS="${CMAKE_FLAGS} -DCMAKE_BUILD_TYPE=Release -DEXAMPLES_ENABLE_C=OFF"
 CMAKE_FLAGS="${CMAKE_FLAGS} -DKLU_ENABLE=ON -DKLU_INCLUDE_DIR=\"$prefix/include/\" -DKLU_LIBRARY_DIR=\"$prefix/lib\""
 CMAKE_FLAGS="${CMAKE_FLAGS} -DBLAS_ENABLE=ON"
@@ -59,6 +66,14 @@ fi
 make -j${nproc}
 make install
 
+# Convert libraries to wasm for the WebAssembly target
+if [[ ${target} == wasm32-* ]]; then
+    cd $WORKSPACE/destdir/lib
+    for f in *.so; do
+        emcc ${f} -s LINKABLE=1 -s EXPORT_ALL=1  -o ${f%%.*}.js
+    done
+fi
+
 # On windows, move all `.dll` files to `bin`. We don't want to follow symlinks
 # because non-administrative users cannot create symlinks on Windows, so we
 # use `cp -L` followed by `rm` instead of just `mv`.
@@ -70,14 +85,15 @@ fi
 
 # We attempt to build for all defined platforms
 platforms = [
-    BinaryProvider.Windows(:i686),
-    BinaryProvider.Windows(:x86_64),
-    BinaryProvider.MacOS(),
-    BinaryProvider.Linux(:x86_64, :glibc),
-    BinaryProvider.Linux(:i686, :glibc),
-    BinaryProvider.Linux(:aarch64, :glibc),
-    BinaryProvider.Linux(:armv7l, :glibc),
-    BinaryProvider.Linux(:powerpc64le, :glibc),
+    BinaryProvider.WebAssembly(),
+    # BinaryProvider.Windows(:i686),
+    # BinaryProvider.Windows(:x86_64),
+    # BinaryProvider.MacOS(),
+    # BinaryProvider.Linux(:x86_64, :glibc),
+    # BinaryProvider.Linux(:i686, :glibc),
+    # BinaryProvider.Linux(:aarch64, :glibc),
+    # BinaryProvider.Linux(:armv7l, :glibc),
+    # BinaryProvider.Linux(:powerpc64le, :glibc),
 ]
 
 
@@ -108,8 +124,8 @@ products(prefix) = [
 ]
 
 dependencies = [
-    "https://github.com/staticfloat/OpenBLASBuilder/releases/download/v0.2.20-7/build.jl",
+#    "https://github.com/staticfloat/OpenBLASBuilder/releases/download/v0.2.20-7/build.jl",
 ]
 
 # Build the tarballs, and possibly a `build.jl` as well.
-build_tarballs(ARGS, "Sundials", sources, script, platforms, products, dependencies)
+build_tarballs(["--verbose", "--debug"], "Sundials", v"3.1.1", sources, script, platforms, products, dependencies)
